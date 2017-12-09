@@ -6,19 +6,20 @@ from glob import glob
 import tensorflow as tf
 import numpy as np
 from six.moves import xrange
-
+import scipy.misc
 from ops import *
 from utils import *
+import matplotlib.pyplot as plt 
 
 def conv_out_size_same(size, stride):
   return int(math.ceil(float(size) / float(stride)))
 
 class DCGAN(object):
-  def __init__(self, sess, input_height=108, input_width=108, crop=True,
-         batch_size=64, sample_num = 64, output_height=64, output_width=64,
+  def __init__(self, sess, crop=True,
+         batch_size=64, sample_num = 64,
          y_dim=None, z_dim=100, gf_dim=64, df_dim=64,
          gfc_dim=1024, dfc_dim=1024, c_dim=3, dataset_name='default',
-         input_fname_pattern='*.jpg', checkpoint_dir=None, sample_dir=None):
+         input_fname_pattern='*.jpg', checkpoint_dir=None, sample_dir=None, imsize= 28):
     """
 
     Args:
@@ -33,15 +34,12 @@ class DCGAN(object):
       c_dim: (optional) Dimension of image color. For grayscale input, set to 1. [3]
     """
     self.sess = sess
-    self.crop = crop
+   
 
     self.batch_size = batch_size
     self.sample_num = sample_num
-
-    self.input_height = input_height
-    self.input_width = input_width
-    self.output_height = output_height
-    self.output_width = output_width
+    
+    self.imsize = imsize
 
     self.y_dim = y_dim
     self.z_dim = z_dim
@@ -91,10 +89,8 @@ class DCGAN(object):
     else:
       self.y = None
 
-    if self.crop:
-      image_dims = [self.output_height, self.output_width, self.c_dim]
-    else:
-      image_dims = [self.input_height, self.input_width, self.c_dim]
+
+    image_dims = [self.imsize, self.imsize, self.c_dim]
 
     self.inputs = tf.placeholder(
       tf.float32, [self.batch_size] + image_dims, name='real_images')
@@ -167,11 +163,11 @@ class DCGAN(object):
       sample_files = self.data[0:self.sample_num]
       sample = [
           get_image(sample_file,
-                    input_height=self.input_height,
-                    input_width=self.input_width,
-                    resize_height=self.output_height,
-                    resize_width=self.output_width,
-                    crop=self.crop,
+                    input_height=self.imsize,
+                    input_width=self.imsize,
+                    resize_height=self.imsize,
+                    resize_width=self.imsize,
+                    crop=False,
                     grayscale=self.grayscale) for sample_file in sample_files]
       if (self.grayscale):
         sample_inputs = np.array(sample).astype(np.float32)[:, :, :, None]
@@ -203,11 +199,11 @@ class DCGAN(object):
           batch_files = self.data[idx*config.batch_size:(idx+1)*config.batch_size]
           batch = [
               get_image(batch_file,
-                        input_height=self.input_height,
-                        input_width=self.input_width,
-                        resize_height=self.output_height,
-                        resize_width=self.output_width,
-                        crop=self.crop,
+                        input_height=self.imsize,
+                        input_width=self.imsize,
+                        resize_height=self.imsize,
+                        resize_width=self.imsize,
+                        crop=False,
                         grayscale=self.grayscale) for batch_file in batch_files]
           if self.grayscale:
             batch_images = np.array(batch).astype(np.float32)[:, :, :, None]
@@ -273,11 +269,11 @@ class DCGAN(object):
           errG = self.g_loss.eval({self.z: batch_z})
 
         counter += 1
-        print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
-          % (epoch, idx, batch_idxs,
-            time.time() - start_time, errD_fake+errD_real, errG))
 
         if np.mod(counter, 100) == 1:
+          print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
+            % (epoch, idx, batch_idxs,
+               time.time() - start_time, errD_fake+errD_real, errG))
           if config.dataset == 'mnist':
             samples, d_loss, g_loss = self.sess.run(
               [self.sampler, self.d_loss, self.g_loss],
@@ -299,12 +295,22 @@ class DCGAN(object):
                     self.inputs: sample_inputs,
                 },
               )
+              
+                     
               save_images(samples, image_manifold_size(samples.shape[0]),
                     './{}/train_{:02d}_{:04d}.png'.format(config.sample_dir, epoch, idx))
               print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss)) 
             except:
               print("one pic error!...")
-
+ #           print samples
+#            print samples[0]
+#            print type(samples[0])
+#            print samples[0].max()
+#            print samples[0].min()
+            print samples[0].shape
+            plt.imsave("sample_{}-1.png".format(counter), (samples[0]+1)/2)
+            plt.imsave("sample_{}-2.png".format(counter), (samples[1]+1)/2)
+            plt.imsave("sample_{}-3.png".format(counter), (samples[2]+1)/2)     
         if np.mod(counter, 500) == 2:
           self.save(config.checkpoint_dir, counter)
 
@@ -342,7 +348,7 @@ class DCGAN(object):
   def generator(self, z, y=None):
     with tf.variable_scope("generator") as scope:
       if not self.y_dim:
-        s_h, s_w = self.output_height, self.output_width
+        s_h, s_w = self.imsize, self.imsize
         s_h2, s_w2 = conv_out_size_same(s_h, 2), conv_out_size_same(s_w, 2)
         s_h4, s_w4 = conv_out_size_same(s_h2, 2), conv_out_size_same(s_w2, 2)
         s_h8, s_w8 = conv_out_size_same(s_h4, 2), conv_out_size_same(s_w4, 2)
@@ -373,7 +379,7 @@ class DCGAN(object):
 
         return tf.nn.tanh(h4)
       else:
-        s_h, s_w = self.output_height, self.output_width
+        s_h, s_w = self.imsize, self.imsize
         s_h2, s_h4 = int(s_h/2), int(s_h/4)
         s_w2, s_w4 = int(s_w/2), int(s_w/4)
 
@@ -403,7 +409,7 @@ class DCGAN(object):
       scope.reuse_variables()
 
       if not self.y_dim:
-        s_h, s_w = self.output_height, self.output_width
+        s_h, s_w = self.imsize, self.imsize
         s_h2, s_w2 = conv_out_size_same(s_h, 2), conv_out_size_same(s_w, 2)
         s_h4, s_w4 = conv_out_size_same(s_h2, 2), conv_out_size_same(s_w2, 2)
         s_h8, s_w8 = conv_out_size_same(s_h4, 2), conv_out_size_same(s_w4, 2)
@@ -428,7 +434,7 @@ class DCGAN(object):
 
         return tf.nn.tanh(h4)
       else:
-        s_h, s_w = self.output_height, self.output_width
+        s_h, s_w = self.imsize, self.imsize
         s_h2, s_h4 = int(s_h/2), int(s_h/4)
         s_w2, s_w4 = int(s_w/2), int(s_w/4)
 
@@ -491,7 +497,7 @@ class DCGAN(object):
   def model_dir(self):
     return "{}_{}_{}_{}".format(
         self.dataset_name, self.batch_size,
-        self.output_height, self.output_width)
+        self.imsize, self.imsize)
       
   def save(self, checkpoint_dir, step):
     model_name = "DCGAN.model"
