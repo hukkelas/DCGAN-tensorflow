@@ -70,10 +70,11 @@ class DCGAN(object):
     if self.dataset_name == 'mnist':
       self.data_X, self.data_y = self.load_mnist()
       self.c_dim = self.data_X[0].shape[-1]
-    if self.dataset_name == 'pokemon-cond':
+
+    if self.dataset_name == 'pokemon/64x64x3':
       self.data_y = self.load_pokemon_y()
       self.data = glob(os.path.join("./data", self.dataset_name, self.input_fname_pattern))
-      self.data_X = [imread(d) for d in self.data]
+      self.data_X = np.array([imread(d) for d in self.data])
       imreadImg = imread(self.data[0])
       if len(imreadImg.shape) >= 3: #check if image is a non-grayscale image by checking channel number
         self.c_dim = imread(self.data[0]).shape[-1]
@@ -168,7 +169,7 @@ class DCGAN(object):
     
 
     # Load data
-    if config.dataset == 'pokemon-cond':
+    if config.dataset == 'pokemon/64x64x3':
       sample_labels = self.data_y[0:self.sample_num]
     if config.dataset == 'mnist':
       sample_inputs = self.data_X[0:self.sample_num]
@@ -210,14 +211,15 @@ class DCGAN(object):
 
       for idx in xrange(0, batch_idxs):
         # Set batch X and Y
-        if config.dataset == 'mnist':
+        if config.dataset == 'pokemon/64x64x3':
           batch_labels = self.data_y[idx*config.batch_size:(idx+1)*config.batch_size]
+          batch_images = self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
         if config.dataset == 'mnist':
           batch_images = self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
           batch_labels = self.data_y[idx*config.batch_size:(idx+1)*config.batch_size]
         else:
           batch_files = self.data[idx*config.batch_size:(idx+1)*config.batch_size]
-          batch = self.data_X[batch_idxs]
+          batch = self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
           if self.grayscale:
             batch_images = np.array(batch).astype(np.float32)[:, :, :, None]
           else:
@@ -263,57 +265,58 @@ class DCGAN(object):
         else:
           # Update D network
           _, summary_str = self.sess.run([d_optim, self.d_sum],
-            feed_dict={ self.inputs: batch_images, self.z: batch_z })
+            feed_dict={ self.inputs: batch_images, self.z: batch_z, self.y: batch_labels })
 
           # Update G network
           _, summary_str = self.sess.run([g_optim, self.g_sum],
-            feed_dict={ self.z: batch_z })
+            feed_dict={ self.z: batch_z, self.y:batch_labels })
 
           # Run g_optim twice to make sure that d_loss does not go to zero (different from paper)
           _, summary_str = self.sess.run([g_optim, self.g_sum],
-            feed_dict={ self.z: batch_z })
+            feed_dict={ self.z: batch_z, self.y: batch_labels })
           
-          errD_fake = self.d_loss_fake.eval({ self.z: batch_z })
-          errD_real = self.d_loss_real.eval({ self.inputs: batch_images })
-          errG = self.g_loss.eval({self.z: batch_z})
+          errD_fake = self.d_loss_fake.eval({ self.z: batch_z, self.y: batch_labels })
+          errD_real = self.d_loss_real.eval({ self.inputs: batch_images, self.y: batch_labels })
+
+          errG = self.g_loss.eval({self.z: batch_z, self.y: batch_labels})
 
         counter += 1
 
-        if np.mod(counter, 100) == 1:
-          print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
-            % (epoch, idx, batch_idxs,
-               time.time() - start_time, errD_fake+errD_real, errG))
-          f = open('{}/curve.txt'.format(config.sample_dir), 'a')
-          f.write("{},{},{},{}\n".format(errG, errD_fake + errD_real, errD_fake, errD_real) ) 
-          f.close()
-          if config.dataset == 'mnist':
-            samples, d_loss, g_loss = self.sess.run(
-              [self.sampler, self.d_loss, self.g_loss],
-              feed_dict={
-                  self.z: sample_z,
-                  self.inputs: sample_inputs,
-                  self.y:sample_labels,
-              }
-            )
-            save_images(samples, image_manifold_size(samples.shape[0]),
-                  './{}/train_{:02d}_{:04d}.png'.format(config.sample_dir, epoch, idx))
-            print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss)) 
-          else:
-            try:
-              samples, d_loss, g_loss = self.sess.run(
-                [self.sampler, self.d_loss, self.g_loss],
-                feed_dict={
-                    self.z: sample_z,
-                    self.inputs: sample_inputs,
-                },
-              )
-              
-                     
-              save_images(samples, image_manifold_size(samples.shape[0]),
-                    './{}/train_{:02d}_{:04d}.png'.format(config.sample_dir, epoch, idx))
-              print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss)) 
-            except:
-              print("one pic error!...")
+
+      print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
+        % (epoch, idx, batch_idxs,
+            time.time() - start_time, errD_fake+errD_real, errG))
+      f = open('{}/curve.txt'.format(config.sample_dir), 'a')
+      f.write("{},{},{},{}\n".format(errG, errD_fake + errD_real, errD_fake, errD_real) ) 
+      f.close()
+      if config.dataset == 'mnist' or True:
+        samples, d_loss, g_loss = self.sess.run(
+          [self.sampler, self.d_loss, self.g_loss],
+          feed_dict={
+              self.z: sample_z,
+              self.inputs: sample_inputs,
+              self.y: sample_labels,
+          }
+        )
+        save_images(samples, image_manifold_size(samples.shape[0]),
+              './{}/train_{:02d}.png'.format(config.sample_dir, epoch))
+        print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss)) 
+      else:
+        try:
+          samples, d_loss, g_loss = self.sess.run(
+            [self.sampler, self.d_loss, self.g_loss],
+            feed_dict={
+                self.z: sample_z,
+                self.inputs: sample_inputs,
+            },
+          )
+          
+                  
+          save_images(samples, image_manifold_size(samples.shape[0]),
+                './{}/train_{:02d}_{:04d}.png'.format(config.sample_dir, epoch, idx))
+          print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss)) 
+        except:
+          print("one pic error!...")
         if np.mod(counter, 500) == 2:
           self.save(config.checkpoint_dir, counter)
 
@@ -529,17 +532,20 @@ class DCGAN(object):
       y_vec[i,y[i]] = 1.0
     
     return X/255.,y_vec
+
   def load_pokemon_y(self):
-    n = 18
-    y = []*802
+    y = [0]*803
     file_path = os.path.join('./data', self.dataset_name, "types.csv")
-    f = open(file_path):
+    f = open(file_path)
     reader = csv.reader(f,delimiter=",")
     for row in reader:
-      pid = row[0]
+      # Skip first row
+      if row[0] == "id":
+        continue
+      pid = int(row[0])
       typeid = row[3]
-      y[pid] = typeid
-    onehot = np.zeros((len(y), n), dtype=bool)
+      y[pid] = int(typeid)
+    onehot = np.zeros((len(y), self.y_dim), dtype=bool)
     for i in range(len(y)):
       onehot[i][y[i]] = 1
     return onehot
