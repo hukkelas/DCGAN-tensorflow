@@ -74,7 +74,7 @@ class DCGAN(object):
     if self.dataset_name == 'pokemon/64x64x3':
       self.data_y = self.load_pokemon_y()
       self.data = glob(os.path.join("./data", self.dataset_name, self.input_fname_pattern))
-      self.data_X = np.array([imread(d) for d in self.data])
+      self.data_X = np.array([imread(d) for d in self.data]) / 255.
       imreadImg = imread(self.data[0])
       if len(imreadImg.shape) >= 3: #check if image is a non-grayscale image by checking channel number
         self.c_dim = imread(self.data[0]).shape[-1]
@@ -263,6 +263,11 @@ class DCGAN(object):
               self.y: batch_labels
           })
         else:
+          print batch_z 
+          print batch_labels
+          print batch_images[0].max()
+          print batch_images[0].min()
+          print self.y.get_shape()
           # Update D network
           _, summary_str = self.sess.run([d_optim, self.d_sum],
             feed_dict={ self.inputs: batch_images, self.z: batch_z, self.y: batch_labels })
@@ -334,6 +339,7 @@ class DCGAN(object):
 
         return tf.nn.sigmoid(h4), h4
       else:
+        print "Discriminating conditional"
         yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
         x = conv_cond_concat(image, yb)
 
@@ -368,19 +374,21 @@ class DCGAN(object):
             output_size=self.gf_dim*8*s_h16*s_w16,
             scope='g_h0_lin', 
             with_w=True)
-
+        print "h0", self.z_.get_shape()
         self.h0 = tf.reshape(
             self.z_, [-1, s_h16, s_w16, self.gf_dim * 8])
         # Batch normalize and relu
         h0 = tf.nn.relu(self.g_bn0(self.h0))
-        
+        print "h0", self.h0.get_shape()
         # Deconvolution layer 1
         self.h1, self.h1_w, self.h1_b = deconv2d(
             input_=h0,
             output_shape= [self.batch_size, s_h8, s_w8, self.gf_dim*4],
             name='g_h1', with_w=True)
         # Batch normalize and relu
+        print "h1", self.h1.get_shape()
         h1 = tf.nn.relu(self.g_bn1(self.h1))
+        print "h1", self.h1.get_shape()
 
 
         # Deconvolution layer 2
@@ -390,6 +398,7 @@ class DCGAN(object):
             name='g_h2',
             with_w=True)
         # Batch normalize and relu
+        print "h2", self.h2.get_shape()
         h2 = tf.nn.relu(self.g_bn2(h2))
         
         # Deconvolution layer 3 
@@ -397,7 +406,7 @@ class DCGAN(object):
             h2, [self.batch_size, s_h2, s_w2, self.gf_dim*1], name='g_h3', with_w=True)
         # Batch normalize and relu
         h3 = tf.nn.relu(self.g_bn3(h3))
-        
+        print "h3", self.h3.get_shape()
         # Deconvolution layer 4 
         h4, self.h4_w, self.h4_b = deconv2d(
             input_=h3,
@@ -408,38 +417,44 @@ class DCGAN(object):
         return tf.nn.tanh(h4)
 
       else: # If y exists (example: mnist)
-        
+        print " Generating conditional"
         # Input sizes
         s_h, s_w = self.imsize, self.imsize
         s_h2, s_h4 = int(s_h/2), int(s_h/4)
         s_w2, s_w4 = int(s_w/2), int(s_w/4)
 
         # yb = tf.expand_dims(tf.expand_dims(y, 1),2)
-
+        print "z", z.get_shape()
         yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
         z = concat([z, y], 1)
-        
+        print "yb", yb.get_shape()
         # fc1 layer
+        print "z", z.get_shape()
         h0 = linear(
           input_=z,
           output_size=self.gfc_dim,
           scope="g_h0_lin"
         )
         # Relu
+        print "h0", h0.get_shape()
         h0 = tf.nn.relu(self.g_bn0(h0))
         # Concatenate
         h0 = concat([h0, y], 1)
-
+        print "h0", h0.get_shape()
         # FC 2 
         h1 = tf.nn.relu(self.g_bn1(
             linear(h0, self.gf_dim*2*s_h4*s_w4, 'g_h1_lin')))
         h1 = tf.reshape(h1, [self.batch_size, s_h4, s_w4, self.gf_dim * 2])
-
+        
+        print "h1", h1.get_shape()
         h1 = conv_cond_concat(h1, yb)
+        print "h1", h1.get_shape()
         # FC 3 
         h2 = tf.nn.relu(self.g_bn2(deconv2d(h1,
             [self.batch_size, s_h2, s_w2, self.gf_dim * 2], name='g_h2')))
+        print "h2", h2.get_shape()
         h2 = conv_cond_concat(h2, yb)
+        print "h2", h2.get_shape()
 
         return tf.nn.sigmoid(
             deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name='g_h3'))
