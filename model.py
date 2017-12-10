@@ -308,7 +308,7 @@ class DCGAN(object):
             }
           )
           save_images(samples, image_manifold_size(samples.shape[0]),
-                './{}/train_{:02d}.png'.format(config.sample_dir, epoch))
+                './{}/train_{:02d}.png'.format(config.sample_dir, epoch), column_size=self.sample_num)
           print("Sample saved") 
         else:
           try:

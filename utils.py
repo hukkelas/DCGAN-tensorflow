@@ -10,7 +10,7 @@ import scipy.misc
 import numpy as np
 from time import gmtime, strftime
 from six.moves import xrange
-
+import matplotlib.pyplot as plt 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
@@ -29,8 +29,8 @@ def get_image(image_path, input_height, input_width,
   return transform(image, input_height, input_width,
                    resize_height, resize_width, crop)
 
-def save_images(images, size, image_path):
-  return imsave(inverse_transform(images), size, image_path)
+def save_images(images, shape, image_path, column_size=None):
+  return imsave(inverse_transform(images), shape, image_path, column_size=column_size)
 
 def imread(path, grayscale = False):
   if (grayscale):
@@ -41,29 +41,60 @@ def imread(path, grayscale = False):
 def merge_images(images, size):
   return inverse_transform(images)
 
-def merge(images, size):
+
+def merge_color_images(images, size, column_size=None):
   h, w = images.shape[1], images.shape[2]
-  if (images.shape[3] in (3,4)):
-    c = images.shape[3]
+  c = images.shape[3]
+  
+  if column_size:
+    num_images = images.shape[0]
+    n_rows = int(num_images/column_size)
+    img = np.ones((n_rows*(h+1),column_size*w, c))
+    row_idx = 0
+    col_idx = 0
+    for idx, image in enumerate(images):
+      img[row_idx * (h+1):row_idx*(h+1) + h, col_idx*w:col_idx*w + w] = image
+      col_idx += 1
+      if col_idx == column_size:
+        col_idx = 0
+        row_idx += 1
+  else:
     img = np.zeros((h * size[0], w * size[1], c))
     for idx, image in enumerate(images):
       i = idx % size[1]
       j = idx // size[1]
       img[j * h:j * h + h, i * w:i * w + w, :] = image
-    return img
+  return img
+
+def merge_grayscale_images(images, size):
+  h, w = images.shape[1], images.shape[2]
+  img = np.zeros((h * size[0], w * size[1]))
+  for idx, image in enumerate(images):
+    i = idx % size[1]
+    j = idx // size[1]
+    img[j * h:j * h + h, i * w:i * w + w] = image[:,:,0]
+  return img
+
+def merge(images, size, column_size=None):
+  if (images.shape[3] in (3,4)):
+    return merge_color_images(images, size, column_size=column_size)
   elif images.shape[3]==1:
-    img = np.zeros((h * size[0], w * size[1]))
-    for idx, image in enumerate(images):
-      i = idx % size[1]
-      j = idx // size[1]
-      img[j * h:j * h + h, i * w:i * w + w] = image[:,:,0]
-    return img
+    return merge_grayscale_images(images, size)
   else:
     raise ValueError('in merge(images,size) images parameter '
                      'must have dimensions: HxW or HxWx3 or HxWx4')
 
-def imsave(images, size, path):
-  image = np.squeeze(merge(images, size))
+def imsave(images, shape, path, column_size=None):
+  types = ['Ghost', 'Dark', 'Poison','Electric','Normal', 'Fire','Psychic','Flying','Steel','Ice','Dragon','Water','Fighting','Rock','Fairy','Grass','Bug','Ground']
+  image = np.squeeze(merge(images, shape, column_size=column_size))
+  #if column_size:
+    #plt.figure(figsize=(16,12))
+    #plt.imshow(image)
+    #n_rows = images.shape[0] / column_size
+    #y_pos = np.arange(0,n_rows) * images.shape[1]
+    #plt.yticks(y_pos, types, rotation='vertical')
+    #return plt.savefig(path)
+
   return scipy.misc.imsave(path, image)
 
 def center_crop(x, crop_h, crop_w,
