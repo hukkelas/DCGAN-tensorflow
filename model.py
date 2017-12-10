@@ -175,7 +175,7 @@ class DCGAN(object):
     
     sample_labels = oh.transform(samples).toarray()
 
-    # Load data
+    # Load sample data
     '''
     if config.dataset == 'pokemon/64x64x3':
       sample_labels = self.data_y[0:self.sample_num]
@@ -220,14 +220,16 @@ class DCGAN(object):
       for idx in xrange(0, batch_idxs):
         # Set batch X and Y
         if config.dataset == 'pokemon/64x64x3':
-          batch_labels = self.data_y[idx*config.batch_size:(idx+1)*config.batch_size]
-          batch_images = self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
+          random_idxs = np.random.randint(0,len(self.data), self.batch_size)
+          batch_labels = self.data_y[random_idxs]
+          batch_images = self.data_X[random_idxs]
         if config.dataset == 'mnist':
           batch_images = self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
           batch_labels = self.data_y[idx*config.batch_size:(idx+1)*config.batch_size]
-        else:
-          batch_files = self.data[idx*config.batch_size:(idx+1)*config.batch_size]
-          batch = self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
+        if False:
+          random_idxs = np.random.randint(0,len(self.data), self.batch_size)
+          batch = self.data_X[random_idxs]
+          #self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
           if self.grayscale:
             batch_images = np.array(batch).astype(np.float32)[:, :, :, None]
           else:
