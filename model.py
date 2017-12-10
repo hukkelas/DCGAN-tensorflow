@@ -10,7 +10,7 @@ import scipy.misc
 from ops import *
 from utils import *
 import matplotlib.pyplot as plt 
-
+import csv
 def conv_out_size_same(size, stride):
   return int(math.ceil(float(size) / float(stride)))
 
@@ -35,7 +35,6 @@ class DCGAN(object):
     """
     self.sess = sess
    
-
     self.batch_size = batch_size
     self.sample_num = sample_num
     
@@ -71,6 +70,15 @@ class DCGAN(object):
     if self.dataset_name == 'mnist':
       self.data_X, self.data_y = self.load_mnist()
       self.c_dim = self.data_X[0].shape[-1]
+    if self.dataset_name == 'pokemon-cond':
+      self.data_y = self.load_pokemon_y()
+      self.data = glob(os.path.join("./data", self.dataset_name, self.input_fname_pattern))
+      self.data_X = [imread(d) for d in self.data]
+      imreadImg = imread(self.data[0])
+      if len(imreadImg.shape) >= 3: #check if image is a non-grayscale image by checking channel number
+        self.c_dim = imread(self.data[0]).shape[-1]
+      else:
+        self.c_dim = 1
     else:
       self.data = glob(os.path.join("./data", self.dataset_name, self.input_fname_pattern))
       imreadImg = imread(self.data[0])
@@ -139,23 +147,29 @@ class DCGAN(object):
     self.saver = tf.train.Saver()
 
   def train(self, config):
+    
+    # Optimizers
     d_optim = tf.train.AdamOptimizer(config.learning_rate, beta1=config.beta1) \
               .minimize(self.d_loss, var_list=self.d_vars)
     g_optim = tf.train.AdamOptimizer(config.learning_rate, beta1=config.beta1) \
               .minimize(self.g_loss, var_list=self.g_vars)
-    try:
-      tf.global_variables_initializer().run()
-    except:
-      tf.initialize_all_variables().run()
+    
+    tf.global_variables_initializer().run()
 
+    # 
     self.g_sum = merge_summary([self.z_sum, self.d__sum,
       self.G_sum, self.d_loss_fake_sum, self.g_loss_sum])
+
     self.d_sum = merge_summary(
         [self.z_sum, self.d_sum, self.d_loss_real_sum, self.d_loss_sum])
-    self.writer = SummaryWriter("./logs", self.sess.graph)
+    
 
     sample_z = np.random.uniform(-1, 1, size=(self.sample_num , self.z_dim))
     
+
+    # Load data
+    if config.dataset == 'pokemon-cond':
+      sample_labels = self.data_y[0:self.sample_num]
     if config.dataset == 'mnist':
       sample_inputs = self.data_X[0:self.sample_num]
       sample_labels = self.data_y[0:self.sample_num]
@@ -173,9 +187,10 @@ class DCGAN(object):
         sample_inputs = np.array(sample).astype(np.float32)[:, :, :, None]
       else:
         sample_inputs = np.array(sample).astype(np.float32)
-  
+    
     counter = 1
     start_time = time.time()
+    # Load checkpoint
     could_load, checkpoint_counter = self.load(self.checkpoint_dir)
     if could_load:
       counter = checkpoint_counter
@@ -183,7 +198,9 @@ class DCGAN(object):
     else:
       print(" [!] Load failed...")
 
+    # Start training
     for epoch in xrange(config.epoch):
+      
       if config.dataset == 'mnist':
         batch_idxs = min(len(self.data_X), config.train_size) // config.batch_size
       else:      
@@ -192,19 +209,15 @@ class DCGAN(object):
         batch_idxs = min(len(self.data), config.train_size) // config.batch_size
 
       for idx in xrange(0, batch_idxs):
+        # Set batch X and Y
+        if config.dataset == 'mnist':
+          batch_labels = self.data_y[idx*config.batch_size:(idx+1)*config.batch_size]
         if config.dataset == 'mnist':
           batch_images = self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
           batch_labels = self.data_y[idx*config.batch_size:(idx+1)*config.batch_size]
         else:
           batch_files = self.data[idx*config.batch_size:(idx+1)*config.batch_size]
-          batch = [
-              get_image(batch_file,
-                        input_height=self.imsize,
-                        input_width=self.imsize,
-                        resize_height=self.imsize,
-                        resize_width=self.imsize,
-                        crop=False,
-                        grayscale=self.grayscale) for batch_file in batch_files]
+          batch = self.data_X[batch_idxs]
           if self.grayscale:
             batch_images = np.array(batch).astype(np.float32)[:, :, :, None]
           else:
@@ -212,7 +225,7 @@ class DCGAN(object):
 
         batch_z = np.random.uniform(-1, 1, [config.batch_size, self.z_dim]) \
               .astype(np.float32)
-
+        # Update each dataset
         if config.dataset == 'mnist':
           # Update D network
           _, summary_str = self.sess.run([d_optim, self.d_sum],
@@ -221,7 +234,7 @@ class DCGAN(object):
               self.z: batch_z,
               self.y:batch_labels,
             })
-          self.writer.add_summary(summary_str, counter)
+
 
           # Update G network
           _, summary_str = self.sess.run([g_optim, self.g_sum],
@@ -229,12 +242,11 @@ class DCGAN(object):
               self.z: batch_z, 
               self.y:batch_labels,
             })
-          self.writer.add_summary(summary_str, counter)
 
           # Run g_optim twice to make sure that d_loss does not go to zero (different from paper)
           _, summary_str = self.sess.run([g_optim, self.g_sum],
             feed_dict={ self.z: batch_z, self.y:batch_labels })
-          self.writer.add_summary(summary_str, counter)
+
           
           errD_fake = self.d_loss_fake.eval({
               self.z: batch_z, 
@@ -252,17 +264,14 @@ class DCGAN(object):
           # Update D network
           _, summary_str = self.sess.run([d_optim, self.d_sum],
             feed_dict={ self.inputs: batch_images, self.z: batch_z })
-          self.writer.add_summary(summary_str, counter)
 
           # Update G network
           _, summary_str = self.sess.run([g_optim, self.g_sum],
             feed_dict={ self.z: batch_z })
-          self.writer.add_summary(summary_str, counter)
 
           # Run g_optim twice to make sure that d_loss does not go to zero (different from paper)
           _, summary_str = self.sess.run([g_optim, self.g_sum],
             feed_dict={ self.z: batch_z })
-          self.writer.add_summary(summary_str, counter)
           
           errD_fake = self.d_loss_fake.eval({ self.z: batch_z })
           errD_real = self.d_loss_real.eval({ self.inputs: batch_images })
@@ -305,15 +314,6 @@ class DCGAN(object):
               print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss)) 
             except:
               print("one pic error!...")
- #           print samples
-#            print samples[0]
-#            print type(samples[0])
-#            print samples[0].max()
-#            print samples[0].min()
-            print samples[0].shape
-            plt.imsave("{}/sample_{}-1.png".format(config.sample_dir, counter), (samples[0]+1)/2)
-            plt.imsave("{}/sample_{}-2.png".format(config.sample_dir, counter), (samples[1]+1)/2)
-            plt.imsave("{}/sample_{}-3.png".format(config.sample_dir, counter), (samples[2]+1)/2)     
         if np.mod(counter, 500) == 2:
           self.save(config.checkpoint_dir, counter)
 
@@ -352,6 +352,8 @@ class DCGAN(object):
     with tf.variable_scope("generator") as scope:
       if not self.y_dim:
         s_h, s_w = self.imsize, self.imsize
+
+        # Define input sizes for convolutions
         s_h2, s_w2 = conv_out_size_same(s_h, 2), conv_out_size_same(s_w, 2)
         s_h4, s_w4 = conv_out_size_same(s_h2, 2), conv_out_size_same(s_w2, 2)
         s_h8, s_w8 = conv_out_size_same(s_h4, 2), conv_out_size_same(s_w4, 2)
@@ -359,47 +361,79 @@ class DCGAN(object):
 
         # project `z` and reshape
         self.z_, self.h0_w, self.h0_b = linear(
-            z, self.gf_dim*8*s_h16*s_w16, 'g_h0_lin', with_w=True)
+            input_=z,
+            output_size=self.gf_dim*8*s_h16*s_w16,
+            scope='g_h0_lin', 
+            with_w=True)
 
         self.h0 = tf.reshape(
             self.z_, [-1, s_h16, s_w16, self.gf_dim * 8])
+        # Batch normalize and relu
         h0 = tf.nn.relu(self.g_bn0(self.h0))
-
+        
+        # Deconvolution layer 1
         self.h1, self.h1_w, self.h1_b = deconv2d(
-            h0, [self.batch_size, s_h8, s_w8, self.gf_dim*4], name='g_h1', with_w=True)
+            input_=h0,
+            output_shape= [self.batch_size, s_h8, s_w8, self.gf_dim*4],
+            name='g_h1', with_w=True)
+        # Batch normalize and relu
         h1 = tf.nn.relu(self.g_bn1(self.h1))
 
-        h2, self.h2_w, self.h2_b = deconv2d(
-            h1, [self.batch_size, s_h4, s_w4, self.gf_dim*2], name='g_h2', with_w=True)
-        h2 = tf.nn.relu(self.g_bn2(h2))
 
+        # Deconvolution layer 2
+        h2, self.h2_w, self.h2_b = deconv2d(
+            input_=h1, 
+            output_shape=[self.batch_size, s_h4, s_w4, self.gf_dim*2],
+            name='g_h2',
+            with_w=True)
+        # Batch normalize and relu
+        h2 = tf.nn.relu(self.g_bn2(h2))
+        
+        # Deconvolution layer 3 
         h3, self.h3_w, self.h3_b = deconv2d(
             h2, [self.batch_size, s_h2, s_w2, self.gf_dim*1], name='g_h3', with_w=True)
+        # Batch normalize and relu
         h3 = tf.nn.relu(self.g_bn3(h3))
-
+        
+        # Deconvolution layer 4 
         h4, self.h4_w, self.h4_b = deconv2d(
-            h3, [self.batch_size, s_h, s_w, self.c_dim], name='g_h4', with_w=True)
-
+            input_=h3,
+            output_shape=[self.batch_size, s_h, s_w, self.c_dim],
+            name='g_h4', with_w=True)
+        
+        # Return tanh, no batch normalization
         return tf.nn.tanh(h4)
-      else:
+
+      else: # If y exists (example: mnist)
+        
+        # Input sizes
         s_h, s_w = self.imsize, self.imsize
         s_h2, s_h4 = int(s_h/2), int(s_h/4)
         s_w2, s_w4 = int(s_w/2), int(s_w/4)
 
         # yb = tf.expand_dims(tf.expand_dims(y, 1),2)
+
         yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
         z = concat([z, y], 1)
-
-        h0 = tf.nn.relu(
-            self.g_bn0(linear(z, self.gfc_dim, 'g_h0_lin')))
+        
+        # fc1 layer
+        h0 = linear(
+          input_=z,
+          output_size=self.gfc_dim,
+          scope="g_h0_lin"
+        )
+        # Relu
+        h0 = tf.nn.relu(self.g_bn0(h0))
+        # Concatenate
         h0 = concat([h0, y], 1)
 
+        # FC 2 
         h1 = tf.nn.relu(self.g_bn1(
             linear(h0, self.gf_dim*2*s_h4*s_w4, 'g_h1_lin')))
         h1 = tf.reshape(h1, [self.batch_size, s_h4, s_w4, self.gf_dim * 2])
 
         h1 = conv_cond_concat(h1, yb)
-
+        # FC 3 
         h2 = tf.nn.relu(self.g_bn2(deconv2d(h1,
             [self.batch_size, s_h2, s_w2, self.gf_dim * 2], name='g_h2')))
         h2 = conv_cond_concat(h2, yb)
@@ -495,6 +529,21 @@ class DCGAN(object):
       y_vec[i,y[i]] = 1.0
     
     return X/255.,y_vec
+  def load_pokemon_y(self):
+    n = 18
+    y = []*802
+    file_path = os.path.join('./data', self.dataset_name, "types.csv")
+    f = open(file_path):
+    reader = csv.reader(f,delimiter=",")
+    for row in reader:
+      pid = row[0]
+      typeid = row[3]
+      y[pid] = typeid
+    onehot = np.zeros((len(y), n), dtype=bool)
+    for i in range(len(y)):
+      onehot[i][y[i]] = 1
+    return onehot
+    
 
   @property
   def model_dir(self):
