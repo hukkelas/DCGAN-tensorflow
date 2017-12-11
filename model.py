@@ -61,8 +61,8 @@ class DCGAN(object):
     self.g_bn1 = batch_norm(name='g_bn1')
     self.g_bn2 = batch_norm(name='g_bn2')
 
-    if not self.y_dim:
-      self.g_bn3 = batch_norm(name='g_bn3')
+
+    self.g_bn3 = batch_norm(name='g_bn3')
 
     self.dataset_name = dataset_name
     self.input_fname_pattern = input_fname_pattern
@@ -436,6 +436,74 @@ class DCGAN(object):
         # Return tanh, no batch normalization
         return tf.nn.tanh(h4)
 
+      if self.y_dim:
+        s_h, s_w = self.imsize, self.imsize
+
+        # Define input sizes for convolutions
+        s_h2, s_w2 = conv_out_size_same(s_h, 2), conv_out_size_same(s_w, 2)
+        s_h4, s_w4 = conv_out_size_same(s_h2, 2), conv_out_size_same(s_w2, 2)
+        s_h8, s_w8 = conv_out_size_same(s_h4, 2), conv_out_size_same(s_w4, 2)
+        s_h16, s_w16 = conv_out_size_same(s_h8, 2), conv_out_size_same(s_w8, 2)
+
+        
+        yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
+        z = concat([z, y], 1)
+
+
+        # project `z` and reshape
+        self.z_, self.h0_w, self.h0_b = linear(
+            input_=z,
+            output_size=self.gf_dim*8*s_h16*s_w16,
+            scope='g_h0_lin', 
+            with_w=True)
+
+        self.h0 = tf.reshape(
+            self.z_, [self.batch_size, s_h16, s_w16, self.gf_dim * 8])
+        # Batch normalize and relu
+        h0 = tf.nn.relu(self.g_bn0(self.h0))
+
+        h0 = conv_cond_concat(h0, yb)
+        # Deconvolution layer 1
+        self.h1, self.h1_w, self.h1_b = deconv2d(
+            input_=h0,
+            output_shape= [self.batch_size, s_h8, s_w8, self.gf_dim*4],
+            name='g_h1', with_w=True)
+        # Batch normalize and relu
+        h1 = tf.nn.relu(self.g_bn1(self.h1))
+
+        h1 = conv_cond_concat(h1, yb)
+
+        # Deconvolution layer 2
+        h2, self.h2_w, self.h2_b = deconv2d(
+            input_=h1, 
+            output_shape=[self.batch_size, s_h4, s_w4, self.gf_dim*2],
+            name='g_h2',
+            with_w=True)
+        # Batch normalize and relu
+
+        h2 = tf.nn.relu(self.g_bn2(h2))
+        
+        h2 = conv_cond_concat(h2, yb)
+
+        # Deconvolution layer 3 
+        h3, self.h3_w, self.h3_b = deconv2d(
+            h2, [self.batch_size, s_h2, s_w2, self.gf_dim*1], name='g_h3', with_w=True)
+        # Batch normalize and relu
+        h3 = tf.nn.relu(self.g_bn3(h3))
+
+        h3 = conv_cond_concat(h3, yb)
+
+        # Deconvolution layer 4 
+        h4, self.h4_w, self.h4_b = deconv2d(
+            input_=h3,
+            output_shape=[self.batch_size, s_h, s_w, self.c_dim],
+            name='g_h4', with_w=True)
+        
+        # Return tanh, no batch normalization
+        return tf.nn.tanh(h4)
+
+
+
       else: # If y exists (example: mnist)
         print " Generating conditional"
         # Input sizes
@@ -446,6 +514,7 @@ class DCGAN(object):
         # yb = tf.expand_dims(tf.expand_dims(y, 1),2)
 
         yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
+        # shape: [batch_size, y_dim + z_dim]
         z = concat([z, y], 1)
 
         # fc1 layer
@@ -457,7 +526,10 @@ class DCGAN(object):
         # Relu
         h0 = tf.nn.relu(self.g_bn0(h0))
         # Concatenate
+        print h0.get_shape()
+        # From 1024 -> 1042
         h0 = concat([h0, y], 1)
+        print h0.get_shape()
         # FC 2 
         h1 = tf.nn.relu(self.g_bn1(
             linear(h0, self.gf_dim*2*s_h4*s_w4, 'g_h1_lin')))
@@ -520,6 +592,64 @@ class DCGAN(object):
         # Batch normalize and relu
         h3 = tf.nn.relu(self.g_bn3(h3))
 
+        # Deconvolution layer 4 
+        h4, self.h4_w, self.h4_b = deconv2d(
+            input_=h3,
+            output_shape=[self.y_dim * self.sample_num, s_h, s_w, self.c_dim],
+            name='g_h4', with_w=True)
+        
+        # Return tanh, no batch normalization
+        return tf.nn.tanh(h4)
+      if self.y_dim:
+        s_h, s_w = self.imsize, self.imsize
+
+        # Define input sizes for convolutions
+        s_h2, s_w2 = conv_out_size_same(s_h, 2), conv_out_size_same(s_w, 2)
+        s_h4, s_w4 = conv_out_size_same(s_h2, 2), conv_out_size_same(s_w2, 2)
+        s_h8, s_w8 = conv_out_size_same(s_h4, 2), conv_out_size_same(s_w4, 2)
+        s_h16, s_w16 = conv_out_size_same(s_h8, 2), conv_out_size_same(s_w8, 2)
+        yb = tf.reshape(y, [self.y_dim * self.sample_num, 1, 1, self.y_dim])
+        z = concat([z,y], 1)
+        # project `z` and reshape
+        self.z_, self.h0_w, self.h0_b = linear(
+            input_=z,
+            output_size=self.gf_dim*8*s_h16*s_w16,
+            scope='g_h0_lin', 
+            with_w=True)
+
+        self.h0 = tf.reshape(
+            self.z_, [self.y_dim * self.sample_num, s_h16, s_w16, self.gf_dim * 8])
+        # Batch normalize and relu
+        h0 = tf.nn.relu(self.g_bn0(self.h0))
+
+        h0 = conv_cond_concat(h0, yb)
+        # Deconvolution layer 1
+        self.h1, self.h1_w, self.h1_b = deconv2d(
+            input_=h0,
+            output_shape= [self.y_dim * self.sample_num, s_h8, s_w8, self.gf_dim*4],
+            name='g_h1', with_w=True)
+        # Batch normalize and relu
+        h1 = tf.nn.relu(self.g_bn1(self.h1))
+
+        h1 = conv_cond_concat(h1, yb)
+        # Deconvolution layer 2
+        h2, self.h2_w, self.h2_b = deconv2d(
+            input_=h1, 
+            output_shape=[self.y_dim * self.sample_num, s_h4, s_w4, self.gf_dim*2],
+            name='g_h2',
+            with_w=True)
+        # Batch normalize and relu
+
+        h2 = tf.nn.relu(self.g_bn2(h2))
+        
+        h2 = conv_cond_concat(h2, yb)
+        # Deconvolution layer 3 
+        h3, self.h3_w, self.h3_b = deconv2d(
+            h2, [self.y_dim * self.sample_num, s_h2, s_w2, self.gf_dim*1], name='g_h3', with_w=True)
+        # Batch normalize and relu
+        h3 = tf.nn.relu(self.g_bn3(h3))
+
+        h3 = conv_cond_concat(h3, yb)
         # Deconvolution layer 4 
         h4, self.h4_w, self.h4_b = deconv2d(
             input_=h3,
