@@ -37,13 +37,12 @@ class DCGAN(object):
     self.sess = sess
    
     self.batch_size = batch_size
-    self.sample_num = sample_num
     
     self.imsize = imsize
 
     self.y_dim = y_dim
     self.z_dim = z_dim
-    self.sample_num = 5 
+    self.sample_num = 5
 
     self.gf_dim = gf_dim
     self.df_dim = df_dim
@@ -76,7 +75,18 @@ class DCGAN(object):
     if self.dataset_name == 'pokemon/64x64x3':
       self.data_y = self.load_pokemon_y()
       self.data = glob(os.path.join("./data", self.dataset_name, self.input_fname_pattern))
-      self.data_X = np.array([imread(d) for d in self.data]) / 255.
+      selected = [199, 196, 210, 238, 240, 239, 237, 224, 378, 377, 370, 364, 390, 376, 438, 454, 450, 449,
+                  291, 317, 335, 402, 423, 466, 479, 518, 529, 581, 609, 655, 646, 743, 754, 753, 735, 749]
+      self.data_X = np.zeros((802,self.imsize, self.imsize, c_dim))
+      #print self.data_y[0:6] * np.arange(1,19)
+      self.data_y = self.data_y#[selected]
+      
+      for path in self.data:
+        i = int(path.split("/")[-1].split(".")[0]) -1 
+        im = imread(path)
+        self.data_X[i] = im / 255
+      self.data_X = self.data_X#[selected]
+      
       imreadImg = imread(self.data[0])
       if len(imreadImg.shape) >= 3: #check if image is a non-grayscale image by checking channel number
         self.c_dim = imread(self.data[0]).shape[-1]
@@ -84,6 +94,7 @@ class DCGAN(object):
         self.c_dim = 1
     else:
       self.data = glob(os.path.join("./data", self.dataset_name, self.input_fname_pattern))
+
       imreadImg = imread(self.data[0])
       if len(imreadImg.shape) >= 3: #check if image is a non-grayscale image by checking channel number
         self.c_dim = imread(self.data[0]).shape[-1]
@@ -150,7 +161,10 @@ class DCGAN(object):
     self.saver = tf.train.Saver()
 
   def train(self, config):
-    
+#    for i,im in enumerate(self.data_X):
+#        print np.arange(1,19) * self.data_y[i]
+#        plt.imshow(im)
+#        plt.show()
     # Optimizers
     d_optim = tf.train.AdamOptimizer(config.learning_rate, beta1=config.beta1) \
               .minimize(self.d_loss, var_list=self.d_vars)
@@ -220,14 +234,14 @@ class DCGAN(object):
       for idx in xrange(0, batch_idxs):
         # Set batch X and Y
         if config.dataset == 'pokemon/64x64x3':
-          random_idxs = np.random.randint(0,len(self.data), self.batch_size)
+          random_idxs = np.random.randint(0,len(self.data_X), self.batch_size)
           batch_labels = self.data_y[random_idxs]
           batch_images = self.data_X[random_idxs]
         if config.dataset == 'mnist':
           batch_images = self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
           batch_labels = self.data_y[idx*config.batch_size:(idx+1)*config.batch_size]
         if False:
-          random_idxs = np.random.randint(0,len(self.data), self.batch_size)
+          random_idxs = np.random.randint(0,len(self.data_X), self.batch_size)
           batch = self.data_X[random_idxs]
           #self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
           if self.grayscale:
@@ -235,8 +249,9 @@ class DCGAN(object):
           else:
             batch_images = np.array(batch).astype(np.float32)
 
-        batch_z = np.random.uniform(-1, 1, [config.batch_size, self.z_dim]) \
-              .astype(np.float32)
+        batch_z = np.random.uniform(-1, 1, [self.batch_size, self.z_dim]).astype(np.float32)
+        
+              
         # Update each dataset
         if config.dataset == 'mnist':
           # Update D network
@@ -308,7 +323,7 @@ class DCGAN(object):
                 self.z: sample_z,
                 self.y: sample_labels,
             }
-          )
+          )      
           save_images(samples, image_manifold_size(samples.shape[0]),
                 './{}/train_{:02d}.png'.format(config.sample_dir, epoch), column_size=self.sample_num)
           print("Sample saved") 
@@ -322,7 +337,8 @@ class DCGAN(object):
               },
             )
             
-                    
+            print "Max value:" , samples.max()
+            print "Min value:", samples.min()
             save_images(samples, image_manifold_size(samples.shape[0]),
                   './{}/train_{:02d}.png'.format(config.sample_dir, epoch))
             print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss)) 
@@ -587,7 +603,7 @@ class DCGAN(object):
     return X/255.,y_vec
 
   def load_pokemon_y(self):
-    y = [0]*803
+    y = [0]*802
     file_path = os.path.join('./data', self.dataset_name, "types.csv")
     f = open(file_path)
     reader = csv.reader(f,delimiter=",")
@@ -595,7 +611,7 @@ class DCGAN(object):
       # Skip first row
       if row[0] == "id":
         continue
-      pid = int(row[0])
+      pid = int(row[0]) - 1
       typeid = row[3]
       y[pid] = int(typeid)
     onehot = np.zeros((len(y), self.y_dim), dtype=bool)
