@@ -318,6 +318,9 @@ class DCGAN(object):
         f = open('{}/curve.txt'.format(config.sample_dir), 'a')
         f.write("{},{},{},{}\n".format(errG, errD_fake + errD_real, errD_fake, errD_real) ) 
         f.close()
+        
+        if np.mod(counter, 500) == 2:
+          self.save(config.checkpoint_dir, counter)
 
         if config.dataset == 'mnist' or True:
           samples, = self.sess.run(
@@ -347,8 +350,7 @@ class DCGAN(object):
             print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss)) 
           except:
             print("one pic error!...")
-          if np.mod(counter, 500) == 2:
-            self.save(config.checkpoint_dir, counter)
+
 
   def discriminator(self, image, y=None, reuse=False):
     with tf.variable_scope("discriminator") as scope:
