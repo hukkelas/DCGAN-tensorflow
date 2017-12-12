@@ -140,14 +140,17 @@ class DCGAN(object):
         return tf.nn.sigmoid_cross_entropy_with_logits(logits=x, labels=y)
       except:
         return tf.nn.sigmoid_cross_entropy_with_logits(logits=x, targets=y)
-
+    
     self.d_loss_real = tf.reduce_mean(
       sigmoid_cross_entropy_with_logits(self.D_logits, tf.ones_like(self.D)))
     self.d_loss_fake = tf.reduce_mean(
       sigmoid_cross_entropy_with_logits(self.D_logits_, tf.zeros_like(self.D_)))
     self.g_loss = tf.reduce_mean(
       sigmoid_cross_entropy_with_logits(self.D_logits_, tf.ones_like(self.D_)))
-
+    
+    self.accuracy_real = tf.reduce_mean(tf.cast(tf.equal(tf.squeeze(tf.round(self.D)), tf.ones_like(self.D)), tf.float32))
+    self.accuracy_fake = tf.reduce_mean(tf.cast(tf.equal(tf.squeeze(tf.round(self.D_)), tf.zeros_like(self.D)), tf.float32))
+    
     self.d_loss_real_sum = scalar_summary("d_loss_real", self.d_loss_real)
     self.d_loss_fake_sum = scalar_summary("d_loss_fake", self.d_loss_fake)
                           
@@ -228,11 +231,11 @@ class DCGAN(object):
     for epoch in xrange(config.epoch):
       
       if config.dataset == 'mnist':
-        batch_idxs = min(len(self.data_X), config.train_size) // config.batch_size
+        batch_idxs = min(len(self.data_X), config.train_size) // self.batch_size
       else:      
         self.data = glob(os.path.join(
           "./data", config.dataset, self.input_fname_pattern))
-        batch_idxs = min(len(self.data), config.train_size) // config.batch_size
+        batch_idxs = min(len(self.data), config.train_size) // self.batch_size
 
       for idx in xrange(0, batch_idxs):
         # Set batch X and Y
@@ -302,23 +305,23 @@ class DCGAN(object):
           # Run g_optim twice to make sure that d_loss does not go to zero (different from paper)
           _, summary_str = self.sess.run([g_optim, self.g_sum],
             feed_dict={ self.z: batch_z, self.y: batch_labels })
-          
-          errD_fake = self.d_loss_fake.eval({ self.z: batch_z, self.y: batch_labels })
-          errD_real = self.d_loss_real.eval({ self.inputs: batch_images, self.y: batch_labels })
-
-          errG = self.g_loss.eval({self.z: batch_z, self.y: batch_labels})
 
         counter += 1
 
       if epoch % 10 == 0:
-        print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
-          % (epoch, idx, batch_idxs,
-              time.time() - start_time, errD_fake+errD_real, errG))
+        # Gather statistics 
+        errD_fake, errD_real, errG, acc_real, acc_fake = self.sess.run(
+          [self.d_loss_fake, self.d_loss_real , self.g_loss, self.accuracy_real, self.accuracy_fake],
+          feed_dict={self.inputs: batch_images, self.y: batch_labels, self.z: batch_z}
+          )
+        print "Epoch:{:4d}, time:{:6.1f}, d_real_loss:{:1.4f}, d_fake_loss:{:1.4f}, g_loss:{:2.4f}, acc_real:{:0.3f}, acc_fake:{:0.3f}" \
+          .format(epoch, time.time() - start_time, errD_real, errD_fake, errG, acc_real, acc_fake)
+
         # Save losses
         f = open('{}/curve.txt'.format(config.sample_dir), 'a')
-        f.write("{},{},{},{}\n".format(errG, errD_fake + errD_real, errD_fake, errD_real) ) 
+        f.write("{},{},{},{},{}\n".format(errG, errD_fake, errD_real, acc_real, acc_fake) ) 
         f.close()
-        
+
         if np.mod(counter, 500) == 2:
           self.save(config.checkpoint_dir, counter)
 
