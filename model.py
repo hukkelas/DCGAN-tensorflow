@@ -322,7 +322,7 @@ class DCGAN(object):
         f.write("{},{},{},{},{}\n".format(errG, errD_fake, errD_real, acc_real, acc_fake) ) 
         f.close()
 
-        if np.mod(counter, 500) == 2:
+        if epoch % 100 == 0:
           self.save(config.checkpoint_dir, counter)
 
         if config.dataset == 'mnist' or True:
