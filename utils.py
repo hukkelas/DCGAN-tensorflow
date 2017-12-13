@@ -277,5 +277,5 @@ def visualize(sess, dcgan, config, option):
 def image_manifold_size(num_images):
   manifold_h = int(np.floor(np.sqrt(num_images)))
   manifold_w = int(np.ceil(np.sqrt(num_images)))
-  assert manifold_h * manifold_w == num_images
+  assert manifold_h * manifold_w == num_images, 'expected: {}, was: {}'.format(num_images, manifold_h * manifold_w)
   return manifold_h, manifold_w
