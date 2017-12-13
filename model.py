@@ -21,7 +21,7 @@ class DCGAN(object):
          y_dim=None, z_dim=100, gf_dim=64, df_dim=64,
          gfc_dim=2048, dfc_dim=1024, c_dim=3, dataset_name='default',
          input_fname_pattern='*.jpg', checkpoint_dir=None, sample_dir=None, imsize= 28,
-        gen_activation_function=tf.nn.tanh, model="fc"):
+        gen_activation_function=tf.nn.tanh, model="fc", wgan=False):
     """
 
     Args:
@@ -145,8 +145,7 @@ class DCGAN(object):
       sigmoid_cross_entropy_with_logits(self.D_logits, tf.ones_like(self.D)))
     self.d_loss_fake = tf.reduce_mean(
       sigmoid_cross_entropy_with_logits(self.D_logits_, tf.zeros_like(self.D_)))
-    #self.g_loss = tf.reduce_mean(
-    #  sigmoid_cross_entropy_with_logits(self.D_logits_, tf.ones_like(self.D_)))
+
     
     self.accuracy_real = tf.reduce_mean(tf.cast(tf.equal(tf.squeeze(tf.round(self.D)), tf.ones_like(self.D)), tf.float32))
     self.accuracy_fake = tf.reduce_mean(tf.cast(tf.equal(tf.squeeze(tf.round(self.D_)), tf.zeros_like(self.D)), tf.float32))
@@ -154,10 +153,15 @@ class DCGAN(object):
     self.d_loss_real_sum = scalar_summary("d_loss_real", self.d_loss_real)
     self.d_loss_fake_sum = scalar_summary("d_loss_fake", self.d_loss_fake)
                           
-#    self.d_loss = self.d_loss_real + self.d_loss_fake
-    self.d_loss = tf.reduce_mean(self.D_logits) - tf.reduce_mean(self.D_logits_)
-    self.g_loss = tf.reduce_mean(self.D_logits_)
     
+    if wgan:
+      self.d_loss = tf.reduce_mean(self.D_logits) - tf.reduce_mean(self.D_logits_)
+      self.g_loss = tf.reduce_mean(self.D_logits_)
+    else:
+      self.g_loss = tf.reduce_mean(
+        sigmoid_cross_entropy_with_logits(self.D_logits_, tf.ones_like(self.D_)))      
+      self.d_loss = self.d_loss_real + self.d_loss_fake
+      
     self.g_loss_sum = scalar_summary("g_loss", self.g_loss)
     self.d_loss_sum = scalar_summary("d_loss", self.d_loss)
 
@@ -169,11 +173,6 @@ class DCGAN(object):
     self.saver = tf.train.Saver()
 
   def train(self, config):
-#    for i,im in enumerate(self.data_X):
-#        print np.arange(1,19) * self.data_y[i]
-#        plt.imshow(im)
-#        plt.show()
-    # Optimizers
     d_optim = tf.train.AdamOptimizer(config.learning_rate, beta1=config.beta1) \
               .minimize(self.d_loss, var_list=self.d_vars)
     g_optim = tf.train.AdamOptimizer(config.learning_rate, beta1=config.beta1) \
